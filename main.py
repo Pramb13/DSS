@@ -4,16 +4,22 @@ import pandas as pd
 from transformers import AutoModelForImageClassification, AutoFeatureExtractor
 from PIL import Image
 from datetime import datetime
+import os
 
 # Constants
 MODEL_NAME = "facebook/dino-vits16"
 LABELS = ["Not Drowsy", "Drowsy"]
+THRESHOLD = 0.6  # Adjust based on testing
 USER_CREDENTIALS = {"user": "123"}
 ADMIN_CREDENTIALS = {"admin": "admin123"}
 
 # Store session predictions
 if "predictions" not in st.session_state:
     st.session_state["predictions"] = []
+
+# Ensure misclassified images are stored for debugging
+MISCLASSIFIED_DIR = "misclassified_images"
+os.makedirs(MISCLASSIFIED_DIR, exist_ok=True)
 
 def authenticate(username, password, role):
     if role == "User" and username in USER_CREDENTIALS and USER_CREDENTIALS[username] == password:
@@ -36,6 +42,7 @@ def load_model():
 def preprocess_image(image, feature_extractor):
     """ Convert and preprocess image for model input """
     image = image.convert("RGB")
+    image = image.resize((224, 224))  # Ensure correct input size
     return feature_extractor(images=image, return_tensors="pt")
 
 def get_prediction(model, inputs):
@@ -48,10 +55,15 @@ def get_prediction(model, inputs):
             predicted_class_idx = torch.argmax(probabilities, dim=-1).item()
             prediction_score = probabilities[0, predicted_class_idx].item()
 
-        # Debugging: Print the raw outputs
+        # Debugging: Print raw outputs
         print(f"Logits: {logits}")
+        print(f"Softmax Probabilities: {probabilities}")
         print(f"Predicted Class Index: {predicted_class_idx}")
         print(f"Confidence Score: {prediction_score:.2f}")
+
+        # Adjust prediction using threshold
+        if prediction_score < THRESHOLD:
+            predicted_class_idx = 1  # Force "Drowsy"
 
         return predicted_class_idx, prediction_score
     except Exception as e:
@@ -73,6 +85,12 @@ def display_result(image, predicted_class_idx, prediction_score):
             "Confidence Score": f"{prediction_score:.2f}",
             "Timestamp": timestamp
         })
+
+        # Save misclassified images for debugging
+        if prediction_label == "Not Drowsy" and prediction_score < THRESHOLD:
+            image_path = os.path.join(MISCLASSIFIED_DIR, f"{timestamp.replace(':', '-')}.jpg")
+            image.save(image_path)
+            st.write(f"⚠️ Misclassified image saved to: `{image_path}`")
 
 def sidebar():
     """ Sidebar authentication for users and admins """
@@ -128,4 +146,4 @@ def main():
             st.write("No data available.")
 
 if __name__ == "__main__":
-    main()   
+    main()
